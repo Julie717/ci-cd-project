@@ -1,0 +1,21 @@
+namespace: pre-prod
+appName: gift-certificates
+deployment:
+  replicaCount: 1
+  label: gift-certificates
+  container:
+    name: gift-certificates
+    image: image
+    imagePullPolicy: IfNotPresent
+    httpPort: 8080
+clusterRoleBinding:
+ apiGroup: rbac.authorization.k8s.io
+ name: cluster-admin-pre-prod
+ingress:
+  ingressClassName: nginx
+  host: gift-certificates.pre-prod.k8s-3.sa
+  port: 8080
+service:
+  port: 8080
+secret:
+  name: secret
