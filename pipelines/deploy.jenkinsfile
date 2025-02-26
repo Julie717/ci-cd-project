@@ -1,5 +1,9 @@
 pipeline {
     agent { label 'Node_02' }
+    parameters {
+        string(name: 'app_branch', defaultValue: 'master', description: 'Application branch')
+        string(name: 'helm_branch', defaultValue: 'master', description: 'Helm branch')
+     }
     environment {
         DOCKERHUB_CREDENTIALS = credentials('dockerhub_credentials')
     }
@@ -9,7 +13,7 @@ pipeline {
     stages {
         stage('Clone repository') {
             steps {
-                git url: 'https://github.com/Julie717/gift-certificates', branch: "${params.BRANCH}"
+                git url: 'https://github.com/Julie717/gift-certificates', branch: "${params.app_branch}"
             }
         }
         stage('Validate Dockerfile'){
@@ -22,23 +26,13 @@ pipeline {
         }
         stage('Build image') {
             steps {
-                sh "docker build -t $DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER --target image_build ."
-                sudo docker build -t web --target test .
+                sh "docker build -t $DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER --target builder ."
+                sh "docker build -t $DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER --target java ."
             }
         }
         stage('Unit tests') {
             steps {
-                sh "docker build -t web --target test ."
-            }
-        }
-        stage('sonarqube') {
-            environment {
-                scannerHome = tool 'SonarScanner'
-            }
-            steps {
-                withSonarQubeEnv('sonarqube') {
-                    bat "${scannerHome}/bin/sonar-scanner"
-                }
+                sh "docker build --target test ."
             }
         }
         stage('Login to Docker Hub') {
@@ -57,6 +51,20 @@ pipeline {
 	            """
 	        }
         }
+        stage('Package helm release') {
+             steps {
+                git url: 'https://github.com/Julie717/ci-cd-project', branch: "${params.helm_branch}"
+                sh """
+                helm package helm -d ../../helm-releases/releases
+                cd ../../helm-releases/
+                helm repo index --url "https://julie717.github.io/helm-releases/" .
+                git add .
+                git commit -m "Add release"
+                git push origin master
+        	    """
+        	 }
+        }
+    }
     post {
          always {
             sh 'docker logout'
