@@ -1,7 +1,13 @@
 pipeline {
     agent { label 'Node_02' }
+    parameters {
+        string(name: 'app_branch', defaultValue: 'master', description: 'Application branch')
+        string(name: 'helm_branch', defaultValue: 'master', description: 'Helm branch')
+     }
     environment {
         DOCKERHUB_CREDENTIALS = credentials('dockerhub_credentials')
+        ARGOCD_USER = credentials('ARGOCD_USER')
+        ARGOCD_URL = credentials('ARGOCD_URL')
     }
     options {
         buildDiscarder(logRotator(numToKeepStr:'5'))
@@ -9,7 +15,7 @@ pipeline {
     stages {
         stage('Clone repository') {
             steps {
-                git url: 'https://github.com/Julie717/gift-certificates', branch: "${params.BRANCH}"
+                git url: 'https://github.com/Julie717/gift-certificates', branch: "${params.app_branch}"
             }
         }
         stage('Validate Dockerfile'){
@@ -22,23 +28,13 @@ pipeline {
         }
         stage('Build image') {
             steps {
-                sh "docker build -t $DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER --target image_build ."
-                sudo docker build -t web --target test .
+                sh "docker build -t $DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER --target builder ."
+                sh "docker build -t $DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER --target java ."
             }
         }
         stage('Unit tests') {
             steps {
-                sh "docker build -t web --target test ."
-            }
-        }
-        stage('sonarqube') {
-            environment {
-                scannerHome = tool 'SonarScanner'
-            }
-            steps {
-                withSonarQubeEnv('sonarqube') {
-                    bat "${scannerHome}/bin/sonar-scanner"
-                }
+                sh "docker build --target test ."
             }
         }
         stage('Login to Docker Hub') {
@@ -57,8 +53,153 @@ pipeline {
 	            """
 	        }
         }
+        stage('Package helm release') {
+             steps {
+                git url: 'https://github.com/Julie717/ci-cd-project', branch: "${params.helm_branch}"
+                sh '''
+                APP_VERSION=`docker image inspect $DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER | grep "JAR_NAME=gift-certificates-[0-9.]*.jar" | grep -o "[0-9.]*" | sed 's/.$//'`
+                sed -i "s|appVersion: [0-9]*.[0-9]*.[0-9]*|appVersion: ${APP_VERSION}|" helm/Chart.yaml
+                helm package helm -d ../../helm-releases/releases
+                cd ../../helm-releases/
+                helm repo index --url "https://julie717.github.io/helm-releases/" .
+                git add .
+                git commit -m "Add release"
+                git push origin master
+                '''
+        	 }
+        }
+        stage('Pre-prod deployment') {
+             steps {
+                sh '''
+                CHART_VERSION=`cat helm/Chart.yaml | grep 'version:' | awk '{print $2}'`
+                cd ../../argocd/app/
+                sed -i "s|value: image|value: '$DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER'|" gift-certificates-pre-prod.yaml
+                sed -i "s|targetRevision: [0-9]*.[0-9]*.[0-9]*|targetRevision: $CHART_VERSION|" gift-certificates-pre-prod.yaml
+                if [ `git status | grep "nothing to commit"` =='' ]
+                 then
+                  git add .
+                  git commit -m "Update gift-certificates pre-prod"
+                  git push origin master
+                fi
+                sleep 30s
+                argocd login $ARGOCD_URL --username $ARGOCD_USER_USR --password $ARGOCD_USER_PSW --plaintext
+                argocd app get gift-certificates-pre-prod --hard-refresh
+                argocd app sync gift-certificates-pre-prod
+                '''
+        	 }
+        	  post {
+                failure {
+                   sh '''
+                   argocd app set gift-certificates-pre-prod --sync-policy none
+                   argocd app rollback gift-certificates-pre-prod --prune
+                   argocd app set gift-certificates-pre-prod --sync-policy automated
+                   cd ../../argocd/app/
+                   git revert HEAD --no-commit
+                   git add .
+                   git commit -m "revert"
+                   git push origin master
+                   '''
+                }
+              }
+        }
+         stage('Check pre-prod deployment') {
+              steps {
+                 sh """
+                 argocd login $ARGOCD_URL --username $ARGOCD_USER_USR --password $ARGOCD_USER_PSW --plaintext
+                 sleep 30s
+                 RESPONSE_CODE=`curl --silent --output /dev/stderr --write-out "%{http_code}"  http://gift-certificates.pre-prod.k8s-3.sa/actuator/health/readiness`
+                 if [[ $RESPONSE_CODE -lt 200 || $RESPONSE_CODE -gt 299 ]] ; then
+                    exit 1
+                 fi
+                 """
+         	  }
+        	  post {
+                 failure {
+                   sh '''
+                   argocd app set gift-certificates-pre-prod --sync-policy none
+                   argocd app rollback gift-certificates-pre-prod --prune
+                   argocd app set gift-certificates-pre-prod --sync-policy automated
+                   cd ../../argocd/app/
+                   git revert HEAD --no-commit
+                   git add .
+                   git commit -m "revert"
+                   git push origin master
+                   '''
+                 }
+              }
+         }
+         stage('Prod deployment') {
+              when {
+                 equals(actual: "${params.app_branch}", expected: master)
+                 equals(actual: "${params.helm_branch}", expected: master)
+              }
+              steps {
+                 sh '''
+                 CHART_VERSION=`cat helm/Chart.yaml | grep "version:" | awk '{print $2}'`
+                 cd ../../argocd/app/
+                 sed -i "s|value: image|value: '$DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER'|" gift-certificates-prod.yaml
+                 sed -i "s|targetRevision: [0-9]*.[0-9]*.[0-9]*|targetRevision: $CHART_VERSION|" gift-certificates-prod.yaml
+                 if [ `git status | grep "nothing to commit"` =='' ]
+                  then
+                   git add .
+                   git commit -m "Update gift-certificates prod"
+                   git push origin master
+                 fi
+                 sleep 30s
+                 argocd login $ARGOCD_URL --username $ARGOCD_USER_USR --password $ARGOCD_USER_PSW --plaintext
+                 argocd app get gift-certificates-pre-prod --hard-refresh
+                 argocd app sync gift-certificates-pre-prod
+                 '''
+         	  }
+        	  post {
+                 failure {
+                   sh '''
+                   argocd app set gift-certificates-prod --sync-policy none
+                   argocd app rollback gift-certificates-prod --prune
+                   argocd app set gift-certificates-prod --sync-policy automated
+                   cd ../../argocd/app/
+                   git revert HEAD --no-commit
+                   git add .
+                   git commit -m "revert"
+                   git push origin master
+                   '''
+                 }
+              }
+         }
+         stage('Check prod deployment') {
+              when {
+                 equals(actual: "${params.app_branch}", expected: master)
+                 equals(actual: "${params.helm_branch}", expected: master)
+              }
+              steps {
+                  sh """
+                  sleep 30s
+                  RESPONSE_CODE=`curl --silent --output /dev/stderr --write-out "%{http_code}"  http://gift-certificates.k8s-3.sa/actuator/health/readiness`
+                  if [[ ${RESPONSE_CODE} -lt 200 || ${RESPONSE_CODE} -gt 299 ]] ; then
+                     exit 1
+                  fi
+                  """
+          	  }
+        	  post {
+                  failure {
+                   sh '''
+                   argocd app set gift-certificates-prod --sync-policy none
+                   argocd app rollback gift-certificates-prod --prune
+                   argocd app set gift-certificates-prod --sync-policy automated
+                   cd ../../argocd/app/
+                   git revert HEAD --no-commit
+                   git add .
+                   git commit -m "revert"
+                   git push origin master
+                   '''
+                  }
+              }
+         }
+    }
     post {
          always {
+            sh 'docker image prune --all --force'
+            sh 'docker builder prune -f'
             sh 'docker logout'
          }
     }
