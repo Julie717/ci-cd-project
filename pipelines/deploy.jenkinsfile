@@ -11,46 +11,7 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr:'5'))
     }
     stages {
-        stage('Clone repository') {
-            steps {
-                git url: 'https://github.com/Julie717/gift-certificates', branch: "${params.app_branch}"
-            }
-        }
-        stage('Validate Dockerfile'){
-            steps {
-                sh """
-                docker pull hadolint/hadolint:latest-alpine
-                docker run --rm -i hadolint/hadolint < Dockerfile
-                """
-            }
-        }
-        stage('Build image') {
-            steps {
-                sh "docker build -t $DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER --target builder ."
-                sh "docker build -t $DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER --target java ."
-            }
-        }
-        stage('Unit tests') {
-            steps {
-                sh "docker build --target test ."
-            }
-        }
-        stage('Login to Docker Hub') {
-            steps {
-                sh """
-	            echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin
-                echo 'Login Completed'
-                """
-            }
-        }
-        stage('Push Image to Docker Hub') {
-            steps {
-                sh """
-	            docker push $DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER
-	            echo 'Push Image Completed'
-	            """
-	        }
-        }
+
         stage('Package helm release') {
              steps {
                 git url: 'https://github.com/Julie717/ci-cd-project', branch: "${params.helm_branch}"
