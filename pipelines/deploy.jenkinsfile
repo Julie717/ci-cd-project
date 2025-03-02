@@ -1,4 +1,3 @@
-def CHART_VERSION = '0.0.1'
 pipeline {
     agent { label 'Node_02' }
     parameters {
@@ -14,12 +13,14 @@ pipeline {
     stages {
 
         stage('Package helm release') {
+             environment {
+                 CHART_VERSION = sh(script:"cat helm/Chart.yaml | grep version: | awk '{print $2}'", , returnStdout: true).trim()
              steps {
                 git url: 'https://github.com/Julie717/ci-cd-project', branch: "${params.helm_branch}"
                 sh '''
                 echo $BUILD_NUMBER
                 echo $env.BUILD_NUMBER
-                CHART_VERSION=`cat helm/Chart.yaml | grep "version:" | awk '{print $2}'`
+                env.CHART_VERSION=`cat helm/Chart.yaml | grep "version:" | awk '{print $2}'`
                 echo $CHART_VERSION
                 APP_VERSION=`docker image inspect ybuyalskaya/gift-certificates:$BUILD_NUMBER | grep "JAR_NAME=gift-certificates-[0-9.]*.jar" | grep -o "[0-9.]*" | sed 's/.$//'`
                 echo $APP_VERSION
