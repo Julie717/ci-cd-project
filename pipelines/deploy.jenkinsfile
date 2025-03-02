@@ -53,7 +53,10 @@ pipeline {
         }
         stage('Package helm release') {
              environment {
-                CHART_VERSION = sh(script:`cat helm/Chart.yaml | grep "version:" | awk '{print $2}'`, , returnStdout: true).trim()
+                CHART_VERSION = """${sh(
+                   returnStdout: true,
+                   script: "cat helm/Chart.yaml | grep 'version:' | awk '{print $2}'"
+                )}"""
              }
              steps {
                 git url: 'https://github.com/Julie717/ci-cd-project', branch: "${params.helm_branch}"
