@@ -52,18 +52,10 @@ pipeline {
 	        }
         }
         stage('Package helm release') {
-             environment {
-                CHART_VERSION = """${sh(
-                   returnStdout: true,
-                   script: 'cat helm/Chart.yaml | grep "version:" | awk "{print $2}"'
-                )}"""
-             }
              steps {
                 git url: 'https://github.com/Julie717/ci-cd-project', branch: "${params.helm_branch}"
                 sh '''
-                echo $CHART_VERSION
                 APP_VERSION=`docker image inspect ybuyalskaya/gift-certificates:$BUILD_NUMBER | grep "JAR_NAME=gift-certificates-[0-9.]*.jar" | grep -o "[0-9.]*" | sed 's/.$//'`
-                echo $APP_VERSION
                 sed -i "s|appVersion: [0-9]*.[0-9]*.[0-9]*|appVersion: ${APP_VERSION}|" helm/Chart.yaml
                 helm package helm -d ../../helm-releases/releases
                 cd ../../helm-releases/
@@ -77,11 +69,10 @@ pipeline {
         stage('Pre-prod deployment') {
              steps {
                 sh """
-                echo $CHART_VERSION
-                echo $BUILD_NUMBER
+                CHART_VERSION=`cat helm/Chart.yaml | grep "version:" | awk '{print $2}'`
                 cd ../../argocd/app/
-                sed -i "s|value: 'ybuyalskaya/gift-certificates:[0-9]*'|value: 'ybuyalskaya/gift-certificates:${BUILD_NUMBER}'|" gift-certificates-pre-prod.yaml
-                sed -i "s|targetRevision: [0-9]*.[0-9]*.[0-9]*|targetRevision: ${CHART_VERSION}|" gift-certificates-pre-prod.yaml
+                sed -i "s|value: 'ybuyalskaya/gift-certificates:[0-9]*'|value: 'ybuyalskaya/gift-certificates:$BUILD_NUMBER'|" gift-certificates-pre-prod.yaml
+                sed -i "s|targetRevision: [0-9]*.[0-9]*.[0-9]*|targetRevision: $CHART_VERSION|" gift-certificates-pre-prod.yaml
                 git add .
                 git commit -m "Update gift-certificates pre-prod"
                 git push origin master
@@ -94,7 +85,7 @@ pipeline {
                  sh """
                  sleep 30s
                  RESPONSE_CODE=`curl --silent --output /dev/stderr --write-out "%{http_code}"  http://gift-certificates.pre-prod.k8s-3.sa/actuator/health`
-                 if [[ ${RESPONSE_CODE} -lt 200 || ${RESPONSE_CODE} -gt 299 ]] ; then
+                 if [[ $RESPONSE_CODE -lt 200 || $RESPONSE_CODE -gt 299 ]] ; then
                     exit 1
                  fi
                  """
@@ -103,9 +94,10 @@ pipeline {
          stage('Prod deployment') {
               steps {
                  sh """
+                 CHART_VERSION=`cat helm/Chart.yaml | grep "version:" | awk '{print $2}'`
                  cd ../../argocd/app/
-                 sed -i "s|value: 'ybuyalskaya/gift-certificates:[0-9]*'|value: 'ybuyalskaya/gift-certificates:${BUILD_NUMBER}'|" gift-certificates-prod.yaml
-                 sed -i "s|targetRevision: [0-9]*.[0-9]*.[0-9]*|targetRevision: ${CHART_VERSION}|" gift-certificates-prod.yaml
+                 sed -i "s|value: 'ybuyalskaya/gift-certificates:[0-9]*'|value: 'ybuyalskaya/gift-certificates:$BUILD_NUMBER'|" gift-certificates-prod.yaml
+                 sed -i "s|targetRevision: [0-9]*.[0-9]*.[0-9]*|targetRevision: $CHART_VERSION|" gift-certificates-prod.yaml
                  git add .
                  git commit -m "Update gift-certificates prod"
                  git push origin master
