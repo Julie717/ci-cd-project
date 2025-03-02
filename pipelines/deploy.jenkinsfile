@@ -55,7 +55,7 @@ pipeline {
              environment {
                 CHART_VERSION = """${sh(
                    returnStdout: true,
-                   script: "cat helm/Chart.yaml | grep 'version:' | awk '{print $2}'"
+                   script: 'cat helm/Chart.yaml | grep "version:" | awk "{print $2}"'
                 )}"""
              }
              steps {
