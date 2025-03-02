@@ -12,52 +12,17 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr:'5'))
     }
     stages {
-        stage('Clone repository') {
-            steps {
-                git url: 'https://github.com/Julie717/gift-certificates', branch: "${params.app_branch}"
-            }
-        }
-        stage('Validate Dockerfile'){
-            steps {
-                sh """
-                docker pull hadolint/hadolint:latest-alpine
-                docker run --rm -i hadolint/hadolint < Dockerfile
-                """
-            }
-        }
-        stage('Build image') {
-            steps {
-                sh "docker build -t $DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER --target builder ."
-                sh "docker build -t $DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER --target java ."
-            }
-        }
-        stage('Unit tests') {
-            steps {
-                sh "docker build --target test ."
-            }
-        }
-        stage('Login to Docker Hub') {
-            steps {
-                sh """
-	            echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin
-                echo 'Login Completed'
-                """
-            }
-        }
-        stage('Push Image to Docker Hub') {
-            steps {
-                sh """
-	            docker push $DOCKERHUB_CREDENTIALS_USR/gift-certificates:$BUILD_NUMBER
-	            echo 'Push Image Completed'
-	            """
-	        }
-        }
+
         stage('Package helm release') {
              steps {
                 git url: 'https://github.com/Julie717/ci-cd-project', branch: "${params.helm_branch}"
                 sh '''
+                echo $BUILD_NUMBER
+                echo $env.BUILD_NUMBER
                 CHART_VERSION=`cat helm/Chart.yaml | grep "version:" | awk '{print $2}'`
+                echo $CHART_VERSION
                 APP_VERSION=`docker image inspect ybuyalskaya/gift-certificates:$BUILD_NUMBER | grep "JAR_NAME=gift-certificates-[0-9.]*.jar" | grep -o "[0-9.]*" | sed 's/.$//'`
+                echo $APP_VERSION
                 sed -i "s|appVersion: [0-9]*.[0-9]*.[0-9]*|appVersion: ${APP_VERSION}|" helm/Chart.yaml
                 helm package helm -d ../../helm-releases/releases
                 cd ../../helm-releases/
@@ -71,6 +36,8 @@ pipeline {
         stage('Pre-prod deployment') {
              steps {
                 sh """
+                echo $CHART_VERSION
+                echo $BUILD_NUMBER
                 cd ../../argocd/app/
                 sed -i "s|value: 'ybuyalskaya/gift-certificates:[0-9]*'|value: 'ybuyalskaya/gift-certificates:${BUILD_NUMBER}'|" gift-certificates-pre-prod.yaml
                 sed -i "s|targetRevision: [0-9]*.[0-9]*.[0-9]*|targetRevision: ${CHART_VERSION}|" gift-certificates-pre-prod.yaml
