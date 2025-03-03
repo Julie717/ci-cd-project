@@ -5,7 +5,7 @@ deployment:
   label: gift-certificates
   container:
     name: gift-certificates
-    image: ybuyalskaya/gift-certificates:${BUILD_NUMBER}
+    image: image
     imagePullPolicy: IfNotPresent
     httpPort: 8080
 volumes:
