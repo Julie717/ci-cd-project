@@ -2,7 +2,7 @@ pipeline {
     agent { label 'Node_02' }
      parameters {
          string(name: 'app_branch', defaultValue: 'master', description: 'Application branch')
-      }
+     }
      environment {
          DOCKERHUB_CREDENTIALS = credentials('dockerhub_credentials')
      }
@@ -36,6 +36,11 @@ pipeline {
          }
     }
     post {
+         always {
+            sh 'docker image prune --all --force'
+            sh 'docker builder prune -f'
+            sh 'docker logout'
+         }
          failure {
             slackSend (channel: 'app', color: '#FF0000', message: "PR check failed: '${JOB_NAME} [${BUILD_NUMBER}]' (${BUILD_URL})")
          }
