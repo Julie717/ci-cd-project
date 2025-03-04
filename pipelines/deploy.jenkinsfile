@@ -104,14 +104,15 @@ pipeline {
         }
          stage('Check pre-prod deployment') {
               steps {
-                 sh """
+                 sh '''
                  argocd login $ARGOCD_URL --username $ARGOCD_USER_USR --password $ARGOCD_USER_PSW --plaintext
                  sleep 30s
                  RESPONSE_CODE=`curl --silent --output /dev/stderr --write-out "%{http_code}"  http://gift-certificates.pre-prod.k8s-3.sa/actuator/health/readiness`
-                 if [[ $RESPONSE_CODE -lt 200 || $RESPONSE_CODE -gt 299 ]] ; then
+                 if [[ $RESPONSE_CODE -lt 200 || $RESPONSE_CODE -gt 299 ]]
+                 then
                     exit 1
                  fi
-                 """
+                 '''
          	  }
         	  post {
                  failure {
@@ -130,8 +131,8 @@ pipeline {
          }
          stage('Prod deployment') {
               when {
-                 equals(actual: "${params.app_branch}", expected: master)
-                 equals(actual: "${params.helm_branch}", expected: master)
+                 equals(actual: "${params.app_branch}", expected: "master")
+                 equals(actual: "${params.helm_branch}", expected: "master")
               }
               steps {
                  sh '''
@@ -168,17 +169,18 @@ pipeline {
          }
          stage('Check prod deployment') {
               when {
-                 equals(actual: "${params.app_branch}", expected: master)
-                 equals(actual: "${params.helm_branch}", expected: master)
+                 equals(actual: "${params.app_branch}", expected: "master")
+                 equals(actual: "${params.helm_branch}", expected: "master")
               }
               steps {
-                  sh """
+                  sh '''
                   sleep 30s
                   RESPONSE_CODE=`curl --silent --output /dev/stderr --write-out "%{http_code}"  http://gift-certificates.k8s-3.sa/actuator/health/readiness`
-                  if [[ ${RESPONSE_CODE} -lt 200 || ${RESPONSE_CODE} -gt 299 ]] ; then
+                  if [[ $RESPONSE_CODE -lt 200 || $RESPONSE_CODE -gt 299 ]]
+                  then
                      exit 1
                   fi
-                  """
+                  '''
           	  }
         	  post {
                   failure {
@@ -201,6 +203,9 @@ pipeline {
             sh 'docker image prune --all --force'
             sh 'docker builder prune -f'
             sh 'docker logout'
+         }
+         failure {
+            slackSend (channel: 'app', color: '#FF0000', message: "PR check failed: '${JOB_NAME} [${BUILD_NUMBER}]' (${BUILD_URL})")
          }
     }
 }
