@@ -2,7 +2,6 @@ pipeline {
     agent { label 'Node_02' }
      parameters {
          string(name: 'app_branch', defaultValue: 'master', description: 'Application branch')
-         string(name: 'BRANCH_NAME', defaultValue: 'main', description: 'Branch to build')
      }
      environment {
          DOCKERHUB_CREDENTIALS = credentials('dockerhub_credentials')
@@ -11,27 +10,8 @@ pipeline {
          buildDiscarder(logRotator(numToKeepStr:'5'))
      }
      stages {
-         stage("checkout") {
-          steps {
-           script {
-             echo "BRANCH_NAME= ${params.BRANCH_NAME}"
-             echo "Source Branch: ${env.GIT_BRANCH}"
-             def git_params = checkout(scm)
-             println(git_params)
-             env.GIT_BRANCH = git_params["CHANGE_BRANCH"]
-             // Print all environment variables
-                    env.each { key, value ->
-                        echo "${key} = ${value}"
-                    }
-
-           }
-          }
-         }
          stage('Clone repository') {
              steps {
-                 sh "echo test"
-                 sh "echo ${env.GIT_BRANCH}"
-                 sh "echo test"
                  git url: 'https://github.com/Julie717/gift-certificates', branch: "${params.app_branch}"
              }
          }
